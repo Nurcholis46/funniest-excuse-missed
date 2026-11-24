@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 // explained. The training-cutoff line is the shortest, sharpest turn of
 // the three, and its premise is one no other entry in this batch uses.
 const text =
-  "My training cutoff is 2024, so I assumed the deadline was too.";
+  "My training cutoff is 2024, so I assumed your deadline was too.";
 
 // The bounty requires 1-200 characters, not only white space, and a single
 // line: fail loudly instead of writing an entry the judge would refuse.
@@ -36,6 +36,11 @@ if (codePoints < 1 || codePoints > 200 || text.trim().length === 0) {
 if (text.includes("\n") || text.includes("\r")) {
   throw new Error("entry must be a single line");
 }
+// Unicode line/paragraph separators break "one line" for readers that
+// honour them, even though they are not \n or \r.
+if (text.includes("\u2028") || text.includes("\u2029")) {
+  throw new Error("entry must not contain Unicode line separators");
+}
 if (text !== text.trim()) {
   throw new Error("entry must not start or end with whitespace");
 }
@@ -44,12 +49,16 @@ if (/[\u0000-\u001f\u007f]/.test(text)) {
 }
 
 mkdirSync("/output", { recursive: true });
-writeFileSync("/output/entry.txt", text, "utf8");
+writeFileSync("/output/entry.txt", text, { encoding: "utf8", mode: 0o644 });
 
 // Read it back and prove the file on disk is exactly the line: a write
 // that silently truncated, re-encoded or padded the entry would otherwise
-// ship a different text to the judge than the one gated above.
-const written = readFileSync("/output/entry.txt", "utf8");
-if (written !== text) {
+// ship a different text to the judge than the one gated above. Compare
+// raw bytes, not just decoded strings, so an encoding slip is caught too.
+const writtenBytes = readFileSync("/output/entry.txt");
+if (!writtenBytes.equals(Buffer.from(text, "utf8"))) {
   throw new Error("entry file does not match the gated line");
+}
+if (writtenBytes.length !== Buffer.byteLength(text, "utf8")) {
+  throw new Error("entry file byte length does not match the gated line");
 }
